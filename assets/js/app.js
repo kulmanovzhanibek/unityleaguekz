@@ -662,8 +662,53 @@
     })));
     return PIDX;
   }
+  // Победы и поражения. Составов на матч в канале нет, поэтому считаем два показателя:
+  // результаты команды в сезонах игрока (при переходе посреди сезона — только в его период)
+  // и результаты матчей, где он забил или отдал пас.
+  const recCache = new Map();
+  const blankRec = () => ({ p: 0, w: 0, d: 0, l: 0 });
+  const resultFor = (m, t) => { const mine = m.h === t ? m.sc[0] : m.sc[1], opp = m.h === t ? m.sc[1] : m.sc[0]; return mine > opp ? 'w' : mine < opp ? 'l' : 'd'; };
+  const addRes = (r, k) => { r.p++; r[k]++; };
+  const pct = r => (r.p ? Math.round((100 * r.w) / r.p) : 0);
+  function playerRecord(P) {
+    if (recCache.has(P.pid)) return recCache.get(P.pid);
+    const team = blankRec(), involved = blankRec(), scored = blankRec(), perSeason = new Map();
+    const ranges = new Map();
+    P.matches.forEach(x => {
+      const k = x.m.s.id + '|' + x.team, r = ranges.get(k) || [x.m.d, x.m.d];
+      if (x.m.d < r[0]) r[0] = x.m.d;
+      if (x.m.d > r[1]) r[1] = x.m.d;
+      ranges.set(k, r);
+    });
+    P.seasons.forEach(ss => {
+      const sr = blankRec();
+      ss.teams.forEach(t => {
+        const rg = ss.teams.size > 1 ? ranges.get(ss.s.id + '|' + t) : null;
+        ss.s.matches.forEach(m => {
+          if (!played(m) || (m.h !== t && m.a !== t) || (rg && (m.d < rg[0] || m.d > rg[1]))) return;
+          const k = resultFor(m, t);
+          addRes(team, k);
+          addRes(sr, k);
+        });
+      });
+      perSeason.set(ss.s.id, sr);
+    });
+    P.matches.forEach(x => {
+      if (!played(x.m)) return;
+      const k = resultFor(x.m, x.team);
+      if (x.g || x.a) addRes(involved, k);
+      if (x.g) addRes(scored, k);
+    });
+    const out = { team, involved, scored, perSeason };
+    recCache.set(P.pid, out);
+    return out;
+  }
+  const wdlBar = r => (r.p ? `<span class="wdl" title="${r.w} В · ${r.d} Н · ${r.l} П"><i class="w" style="width:${(100 * r.w) / r.p}%"></i><i class="d" style="width:${(100 * r.d) / r.p}%"></i><i class="l" style="width:${(100 * r.l) / r.p}%"></i></span>` : '');
+  const MIN_PCT = 30;
   const PSORT = [
-    ['ga', 'Гол + пас', P => P.g + P.a], ['g', 'Голы', P => P.g], ['a', 'Ассисты', P => P.a], ['cards', 'Карточки', P => P.yc + P.rc * 2]
+    ['ga', 'Гол + пас', P => P.g + P.a], ['g', 'Голы', P => P.g], ['a', 'Ассисты', P => P.a], ['cards', 'Карточки', P => P.yc + P.rc * 2],
+    ['wins', 'Победы', P => playerRecord(P).team.w, { fmt: P => { const r = playerRecord(P).team; return `${r.w}<div class="muted" style="font-size:11px;font-weight:500">из ${r.p}</div>`; } }],
+    ['winpct', '% побед', P => pct(playerRecord(P).team), { min: P => playerRecord(P).team.p >= MIN_PCT, fmt: P => { const r = playerRecord(P).team; return `${pct(r)}%<div class="muted" style="font-size:11px;font-weight:500">${r.w}/${r.p}</div>`; } }]
   ];
   const rankCache = new Map();
   function allTimeRank(key, pid) {
@@ -694,7 +739,8 @@
     const sort = PSORT.find(x => x[0] === sortKey) || PSORT[0];
     const needle = normName(qs.trim());
     const hit = P => normName(P.name).includes(needle) || (PALIAS[P.pid] || []).some(a => normName(a).includes(needle));
-    let list = [...playerIndex().values()].filter(P => (needle ? hit(P) : sort[2](P) > 0));
+    const opt = sort[3] || {};
+    let list = [...playerIndex().values()].filter(P => (needle ? hit(P) : sort[2](P) > 0 && (!opt.min || opt.min(P))));
     list.sort((a, b) => sort[2](b) - sort[2](a) || b.g - a.g || b.a - a.a || a.name.localeCompare(b.name));
     const total = list.length;
     list = list.slice(0, all || needle ? 400 : 50);
@@ -708,7 +754,7 @@
         <td class="l strong">${playerA(P.pid)}</td>
         <td class="l"><span class="team-cell">${teams.slice(0, 3).map(t => badge(t, null, 'sm')).join('')}${teams.length > 3 ? `<span class="muted" style="font-size:11px">+${teams.length - 3}</span>` : ''}</span></td>
         <td class="hide-sm">${P.seasons.size}</td><td>${P.g}</td><td>${P.a}</td><td class="hide-sm">${P.g + P.a}</td><td class="hide-sm">${P.yc}</td><td class="hide-sm">${P.rc}</td>
-        <td class="pts">${sort[0] === 'cards' ? `${P.yc}/${P.rc}` : v}</td></tr>`;
+        <td class="pts">${sort[0] === 'cards' ? `${P.yc}/${P.rc}` : opt.fmt ? opt.fmt(P) : v}</td></tr>`;
     }).join('');
     return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th class="l">Игрок</th><th class="l">Команды</th><th class="hide-sm" title="Турниров">Т</th><th title="Голы">Г</th><th title="Передачи">П</th><th class="hide-sm">Г+П</th><th class="hide-sm" title="Жёлтые карточки">ЖК</th><th class="hide-sm" title="Красные карточки">КК</th><th>${esc(sort[1])}</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${!all && !needle && total > list.length ? `<div class="note"><a class="btn" href="${link('players', { sort: sort[0], all: 1 })}">Показать всех (${total})</a></div>` : ''}`;
@@ -721,7 +767,8 @@
         <div class="card-b"><input id="player-search" class="search" type="search" placeholder="Поиск игрока: имя или фамилия" value="${esc(q.q || '')}" autocomplete="off"></div>
         <div class="subtabs">${PSORT.map(x => `<a href="${link('players', { sort: x[0] })}" class="${x === sort ? 'active' : ''}">${x[1]}</a>`).join('')}</div>
         <div id="players-list">${playersTable(q.q || '', sort[0], q.all === '1')}</div>
-        <div class="note">Статистика посчитана по протоколам матчей, опубликованным в Telegram-канале. Разные написания имени одного игрока объединены.</div>
+        <div class="note">Статистика посчитана по протоколам матчей, опубликованным в Telegram-канале. Разные написания имени одного игрока объединены.
+          ${['wins', 'winpct'].includes(sort[0]) ? `<br>Победы — результаты команды в сезонах игрока (составов на матч в канале нет).${sort[0] === 'winpct' ? ` В рейтинге «% побед» — игроки с ${MIN_PCT}+ матчами команды.` : ''}` : ''}</div>
       </div>`;
   }
 
@@ -763,14 +810,20 @@
       if (r) rec.push(`<a class="list-row" href="${link('players', { sort: k })}"><div class="grow"><div class="t">Место в истории лиги ${t}</div></div><span class="val">${r}</span></a>`);
     });
 
+    // победы и поражения
+    const wl = playerRecord(P);
+    const recRow = (label, r) => `<tr><td class="l">${label}</td><td>${r.p}</td><td>${r.w}</td><td class="hide-sm">${r.d}</td><td>${r.l}</td><td class="pts">${r.p ? pct(r) + '%' : '—'}</td><td class="l hide-sm" style="width:28%">${wdlBar(r)}</td></tr>`;
+
     // по сезонам
     const seasonRows = seasons.slice().reverse().map(ss => {
       const L = seasonLeaders(ss.s);
       const sortedG = [...L.by.values()].map(x => x.g).sort((a, b) => b - a);
       const place = ss.g ? sortedG.indexOf(ss.g) + 1 : null;
+      const sr = wl.perSeason.get(ss.s.id) || blankRec();
       return `<tr><td class="l"><a href="${link('stats', null, ss.s)}">${esc(ss.s.season)}</a><div class="muted" style="font-size:11px">${esc(ss.s.name)}</div></td>
         <td class="l"><span class="team-cell">${[...ss.teams].map(t => `<a class="team-cell" href="${teamLink(t, ss.s)}">${badge(t, ss.s, 'sm')}<span class="name hide-sm">${esc(tName(t, ss.s))}</span></a>`).join(' ')}</span></td>
-        <td class="strong">${ss.g}</td><td>${ss.a}</td><td class="hide-sm">${ss.g + ss.a}</td><td>${ss.yc}</td><td>${ss.rc}</td><td class="hide-sm muted">${place ? '#' + place : '—'}</td></tr>`;
+        <td class="strong">${ss.g}</td><td>${ss.a}</td><td class="hide-sm">${ss.g + ss.a}</td><td>${ss.yc}</td><td>${ss.rc}</td>
+        <td class="hide-sm muted">${sr.p ? `${sr.w}-${sr.d}-${sr.l}` : '—'}</td><td class="hide-sm muted">${place ? '#' + place : '—'}</td></tr>`;
     }).join('');
 
     const all = q && q.all === '1';
@@ -793,13 +846,19 @@
       </div>
       ${P.pen || P.og || P.mp ? `<div class="note">Из них с пенальти: ${P.pen}${P.mp ? ` · незабитых пенальти: ${P.mp}` : ''}${P.og ? ` · автоголов: ${P.og}` : ''}</div>` : ''}
       </div>
+      <div class="card"><div class="card-h">Победы и поражения</div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th class="l"></th><th title="Матчи">И</th><th title="Победы">В</th><th class="hide-sm" title="Ничьи">Н</th><th title="Поражения">П</th><th>% побед</th><th class="hide-sm"></th></tr></thead><tbody>
+          ${recRow('Команда в его сезонах', wl.team)}${recRow('Когда забил или отдал пас', wl.involved)}${recRow('Когда забил', wl.scored)}
+        </tbody></table></div>
+        <div class="note">Составов на матч в канале нет, поэтому точное число матчей игрока неизвестно. «Команда в его сезонах» — все матчи его команды в турнирах, где он за неё выступал (при переходе посреди сезона — только в его период). Две другие строки — матчи, где он отметился в протоколе.</div>
+      </div>
       <div class="card"><div class="card-h">Титулы<span class="sub">${titles.length}</span></div>
         ${titles.join('') || '<div class="empty">Титулов пока нет</div>'}
         ${titles.some(t => t.includes('Чемпион*')) ? '<div class="note">* чемпион в канале не назван — первое место в итоговой таблице.</div>' : ''}
       </div>
       <div class="card"><div class="card-h">Рекорды</div>${rec.join('')}</div>
-      <div class="card"><div class="card-h">По сезонам</div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="l">Турнир</th><th class="l">Команда</th><th title="Голы">Г</th><th title="Передачи">П</th><th class="hide-sm">Г+П</th><th title="Жёлтые">ЖК</th><th title="Красные">КК</th><th class="hide-sm" title="Место среди бомбардиров">Место</th></tr></thead>
-        <tbody>${seasonRows}<tr><td class="l strong">Всего</td><td></td><td class="strong">${P.g}</td><td class="strong">${P.a}</td><td class="hide-sm strong">${P.g + P.a}</td><td class="strong">${P.yc}</td><td class="strong">${P.rc}</td><td class="hide-sm"></td></tr></tbody></table></div></div>
+      <div class="card"><div class="card-h">По сезонам</div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="l">Турнир</th><th class="l">Команда</th><th title="Голы">Г</th><th title="Передачи">П</th><th class="hide-sm">Г+П</th><th title="Жёлтые">ЖК</th><th title="Красные">КК</th><th class="hide-sm" title="Победы-ничьи-поражения команды">В-Н-П</th><th class="hide-sm" title="Место среди бомбардиров">Место</th></tr></thead>
+        <tbody>${seasonRows}<tr><td class="l strong">Всего</td><td></td><td class="strong">${P.g}</td><td class="strong">${P.a}</td><td class="hide-sm strong">${P.g + P.a}</td><td class="strong">${P.yc}</td><td class="strong">${P.rc}</td><td class="hide-sm muted">${wl.team.w}-${wl.team.d}-${wl.team.l}</td><td class="hide-sm"></td></tr></tbody></table></div></div>
       <div class="card"><div class="card-h">Матчи с участием<span class="sub">${ms.length}</span></div>
         ${shown.map(x => matchRow(x.m, { showSeason: true, note: contrib(x) })).join('')}
         ${!all && ms.length > shown.length ? `<div class="note"><a class="btn" href="${link('player/' + pid, { all: 1 })}">Показать все (${ms.length})</a></div>` : ''}

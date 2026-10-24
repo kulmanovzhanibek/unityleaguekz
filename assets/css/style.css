@@ -275,3 +275,9 @@ a.plink:hover { color: var(--accent); text-decoration: underline; }
 .kpi .card-yc, .kpi .card-rc { vertical-align: 0; }
 .kpis.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 @media (max-width: 560px) { .kpis.five .kpi { padding: 10px 8px; } .kpis.five .kpi .v { font-size: 17px; } .kpis.five .kpi .k { font-size: 9px; letter-spacing: 0; } }
+
+.wdl { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface-2); min-width: 60px; }
+.wdl i { display: block; height: 100%; }
+.wdl .w { background: var(--win); }
+.wdl .d { background: var(--draw); }
+.wdl .l { background: var(--loss); }
