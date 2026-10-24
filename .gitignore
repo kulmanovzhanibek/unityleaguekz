@@ -1,0 +1,6 @@
+# экспорт Telegram (личные данные канала) не коммитим
+ChatExport*/
+messages*.html
+__pycache__/
+*.pyc
+.DS_Store
