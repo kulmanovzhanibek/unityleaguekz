@@ -16,6 +16,9 @@
   const MATCH = new Map();
   SEASONS.forEach(s => s.matches.forEach(m => { m.s = s; MATCH.set(m.id, m); }));
   const TG = (D.league.links && D.league.links.telegram) || 'https://t.me/unityleaguekz';
+  const PN = D.players || [];
+  const pName = i => (i == null ? null : PN[i] || null);
+  const has = v => v !== null && v !== undefined;
 
   // ---------------------------------------------------------------- helpers
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -88,9 +91,9 @@
     table.forEach((r, i) => { r.pos = i + 1; });
 
     const P = new Map();
-    const pl = (name, tm) => {
-      const k = tm + '|' + name;
-      if (!P.has(k)) P.set(k, { name, team: tm, g: 0, pen: 0, a: 0, yc: 0, rc: 0, og: 0 });
+    const pl = (pid, tm) => {
+      const k = tm + '|' + pid;
+      if (!P.has(k)) P.set(k, { pid, name: pName(pid), team: tm, g: 0, pen: 0, a: 0, yc: 0, rc: 0, og: 0 });
       return P.get(k);
     };
     let goals = 0, cards = 0;
@@ -99,12 +102,12 @@
       for (const e of m.ev || []) {
         const tm = e[2] === 'h' ? m.h : m.a, other = e[2] === 'h' ? m.a : m.h;
         if (e[1] === 'goal' || e[1] === 'pen') {
-          if (e[3]) { const p = pl(e[3], tm); p.g++; if (e[1] === 'pen') p.pen++; }
-          if (e[4]) pl(e[4], tm).a++;
+          if (has(e[3])) { const p = pl(e[3], tm); p.g++; if (e[1] === 'pen') p.pen++; }
+          if (has(e[4])) pl(e[4], tm).a++;
         } else if (e[1] === 'og') {
-          if (e[3]) pl(e[3], other).og++;
-        } else if (e[1] === 'yc') { cards++; if (e[3]) pl(e[3], tm).yc++; }
-        else if (e[1] === 'rc') { cards++; if (e[3]) pl(e[3], tm).rc++; }
+          if (has(e[3])) pl(e[3], other).og++;
+        } else if (e[1] === 'yc') { cards++; if (has(e[3])) pl(e[3], tm).yc++; }
+        else if (e[1] === 'rc') { cards++; if (has(e[3])) pl(e[3], tm).rc++; }
       }
     }
     const players = [...P.values()];
@@ -140,6 +143,8 @@
   }
   const matchLink = m => link('match/' + m.id, null, m.s);
   const teamLink = (id, s) => link('team/' + id, null, s);
+  const playerLink = pid => link('player/' + pid);
+  const playerA = pid => `<a class="plink" href="${playerLink(pid)}">${esc(pName(pid))}</a>`;
   const defaultSeason = () => SEASONS.slice().reverse().find(s => s.matches.length) || SEASONS[SEASONS.length - 1];
 
   function resolveSeason(q, parts) {
@@ -170,6 +175,7 @@
     if (opts.showStage && m.st) extra.push(m.st);
     if (opts.showSeason) extra.push(sLabel(s));
     if (!played(m) && m.note) extra.push('счёт не опубликован');
+    if (opts.note) extra.unshift(opts.note);
     return `<a class="match" href="${matchLink(m)}">
       <div class="m-status">${statusCell(m)}</div>
       <div class="m-teams">
@@ -405,7 +411,7 @@
       if (v !== prev) { rank = i + 1; prev = v; }
       const val = tab[0] === 'cards' ? `${p.yc} / ${p.rc}` : v;
       return `<tr><td class="muted">${rank}</td>
-        <td class="l strong">${esc(p.name)}</td>
+        <td class="l strong">${playerA(p.pid)}</td>
         <td class="l team"><a class="team-cell" href="${teamLink(p.team, s)}">${badge(p.team, s, 'sm')}<span class="name">${esc(tName(p.team, s))}</span></a></td>
         ${tab[0] === 'cards' ? '' : `<td class="hide-sm">${p.g}${p.pen ? ` <span class="muted">(${p.pen} пен.)</span>` : ''}</td><td class="hide-sm">${p.a}</td>`}
         <td class="pts">${val}</td></tr>`;
@@ -514,22 +520,21 @@
         <div class="kpi"><div class="v">${row.gf}:${row.ga}</div><div class="k">мячи</div></div>
       </div>${row.form.length ? `<div class="note">Последние матчи: ${formHtml(row.form)}</div>` : ''}</div>` : ''}
       ${scorers.length ? `<div class="card"><div class="card-h">Лучшие игроки<span class="sub">голы · передачи</span></div>
-        ${scorers.map(p => `<div class="list-row"><div class="grow"><div class="t">${esc(p.name)}</div></div><span class="val">${p.g}</span><span class="muted num" style="min-width:34px;text-align:right">${p.a} п.</span></div>`).join('')}</div>` : ''}
+        ${scorers.map(p => `<a class="list-row" href="${playerLink(p.pid)}"><div class="grow"><div class="t">${esc(p.name)}</div></div><span class="val">${p.g}</span><span class="muted num" style="min-width:34px;text-align:right">${p.a} п.</span></a>`).join('')}</div>` : ''}
       <div class="card"><div class="card-h">Матчи<span class="sub">${ms.length}</span></div>${ms.map(m => matchRow(m, { showStage: true })).join('') || '<div class="empty">Нет матчей</div>'}</div>
       ${hist ? `<div class="card"><div class="card-h">История выступлений</div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="l">Турнир</th><th>Место</th><th>И</th><th class="hide-sm">В-Н-П</th><th>Мячи</th><th>О</th></tr></thead><tbody>${hist}</tbody></table></div></div>` : ''}`;
   }
 
   function eventRow(e, m, run) {
-    const s = m.s;
     const [min, t, side, p, a] = e;
     let icon = '', what = '';
-    if (t === 'goal') { icon = '⚽'; what = a ? `<small>пас: ${esc(a)}</small>` : ''; }
+    if (t === 'goal') { icon = '⚽'; what = has(a) ? `<small>пас: ${playerA(a)}</small>` : ''; }
     else if (t === 'pen') { icon = '⚽'; what = '<small>пенальти</small>'; }
     else if (t === 'og') { icon = '⚽'; what = '<small>автогол</small>'; }
     else if (t === 'yc') { icon = '<span class="card-yc" title="Жёлтая карточка"></span>'; }
     else if (t === 'rc') { icon = '<span class="card-rc" title="Красная карточка"></span>'; }
     else if (t === 'mp') { icon = '✖'; what = '<small>нереализованный пенальти</small>'; }
-    const who = `<div class="who"><b>${esc(p || (t === 'og' ? 'Автогол' : 'Гол'))}</b>${run ? `<span class="run">${run}</span>` : ''}${what}</div>`;
+    const who = `<div class="who"><b>${has(p) ? playerA(p) : (t === 'og' ? 'Автогол' : 'Гол')}</b>${run ? `<span class="run">${run}</span>` : ''}${what}</div>`;
     const content = side === 'h' ? `${who}<span class="icon">${icon}</span>` : `<span class="icon">${icon}</span>${who}`;
     return `<div class="ev"><div class="evs h">${side === 'h' ? content : ''}</div><div class="min">${min != null ? min + "'" : ''}</div><div class="evs a">${side === 'a' ? content : ''}</div></div>`;
   }
@@ -613,8 +618,8 @@
     const hauls = [];
     all.forEach(m => {
       const c = new Map();
-      (m.ev || []).forEach(e => { if ((e[1] === 'goal' || e[1] === 'pen') && e[3]) { const k = e[2] + '|' + e[3]; c.set(k, (c.get(k) || 0) + 1); } });
-      c.forEach((n, k) => { if (n >= 4) { const [side, name] = k.split('|'); hauls.push({ m, n, name, team: side === 'h' ? m.h : m.a }); } });
+      (m.ev || []).forEach(e => { if ((e[1] === 'goal' || e[1] === 'pen') && has(e[3])) { const k = e[2] + '|' + e[3]; c.set(k, (c.get(k) || 0) + 1); } });
+      c.forEach((n, k) => { if (n >= 4) { const [side, id] = k.split('|'); hauls.push({ m, n, pid: +id, name: pName(+id), team: side === 'h' ? m.h : m.a }); } });
     });
     hauls.sort((a, b) => b.n - a.n || byDate(b.m, a.m));
     const best = SEASONS.filter(s => stats(s).topScorer && stats(s).topScorer.g).map(s => ({ s, p: stats(s).topScorer })).sort((a, b) => b.p.g - a.p.g).slice(0, 10);
@@ -624,9 +629,178 @@
       <div class="card"><div class="card-h">Крупнейшие победы</div>${wins.map(mrow).join('')}</div>
       <div class="card"><div class="card-h">Самые результативные матчи</div>${goals.map(mrow).join('')}</div>
       <div class="card"><div class="card-h">Больше всего голов за матч<span class="sub">4 и более</span></div>
-        ${hauls.slice(0, 15).map(x => `<a class="list-row" href="${matchLink(x.m)}">${badge(x.team, x.m.s)}<div class="grow"><div class="t">${esc(x.name)}</div><div class="s">${esc(tName(x.m.h, x.m.s))} ${x.m.sc[0]}:${x.m.sc[1]} ${esc(tName(x.m.a, x.m.s))} · ${esc(x.m.s.season)}</div></div><span class="val">${x.n}</span></a>`).join('') || '<div class="empty">Нет данных</div>'}</div>
+        ${hauls.slice(0, 15).map(x => `<a class="list-row" href="${playerLink(x.pid)}">${badge(x.team, x.m.s)}<div class="grow"><div class="t">${esc(x.name)}</div><div class="s">${esc(tName(x.m.h, x.m.s))} ${x.m.sc[0]}:${x.m.sc[1]} ${esc(tName(x.m.a, x.m.s))} · ${esc(x.m.s.season)}</div></div><span class="val">${x.n}</span></a>`).join('') || '<div class="empty">Нет данных</div>'}</div>
+      ${[['g', 'Бомбардиры за всю историю', P => P.g], ['a', 'Ассистенты за всю историю', P => P.a]].map(([k, title, f]) => `<div class="card"><div class="card-h">${title}<a class="more" href="${link('players', { sort: k })}">Все</a></div>
+        ${[...playerIndex().values()].sort((a, b) => f(b) - f(a) || (b.g + b.a) - (a.g + a.a)).slice(0, 10).map(P => `<a class="list-row" href="${playerLink(P.pid)}">${badge([...P.teams.entries()].sort((a, b) => b[1] - a[1])[0][0])}<div class="grow"><div class="t">${esc(P.name)}</div><div class="s">${P.seasons.size} ${plural(P.seasons.size, 'турнир', 'турнира', 'турниров')} · ${P.g} г. · ${P.a} п.</div></div><span class="val">${f(P)}</span></a>`).join('')}</div>`).join('')}
       <div class="card"><div class="card-h">Лучшие бомбардиры сезонов</div>
-        ${best.map(x => `<a class="list-row" href="${link('stats', null, x.s)}">${badge(x.p.team, x.s)}<div class="grow"><div class="t">${esc(x.p.name)}</div><div class="s">${esc(tName(x.p.team, x.s))} · ${esc(sLabel(x.s))}</div></div><span class="val">${x.p.g}</span></a>`).join('')}</div>`;
+        ${best.map(x => `<a class="list-row" href="${playerLink(x.p.pid)}">${badge(x.p.team, x.s)}<div class="grow"><div class="t">${esc(x.p.name)}</div><div class="s">${esc(tName(x.p.team, x.s))} · ${esc(sLabel(x.s))}</div></div><span class="val">${x.p.g}</span></a>`).join('')}</div>`;
+  }
+
+  // ---------------------------------------------------------------- игроки (все сезоны)
+  let PIDX = null;
+  const blank = () => ({ g: 0, a: 0, pen: 0, og: 0, yc: 0, rc: 0, mp: 0 });
+  function playerIndex() {
+    if (PIDX) return PIDX;
+    PIDX = new Map();
+    const add = (pid, s, m, team, keys) => {
+      if (!has(pid)) return;
+      if (!PIDX.has(pid)) PIDX.set(pid, Object.assign({ pid, name: pName(pid), teams: new Map(), seasons: new Map(), matches: new Map() }, blank()));
+      const P = PIDX.get(pid);
+      if (!P.seasons.has(s.id)) P.seasons.set(s.id, Object.assign({ s, teams: new Set() }, blank()));
+      if (!P.matches.has(m.id)) P.matches.set(m.id, Object.assign({ m, team }, blank()));
+      const ss = P.seasons.get(s.id), mm = P.matches.get(m.id);
+      ss.teams.add(team);
+      P.teams.set(team, (P.teams.get(team) || 0) + 1);
+      keys.forEach(k => { P[k]++; ss[k]++; mm[k]++; });
+    };
+    SEASONS.forEach(s => s.matches.forEach(m => (m.ev || []).forEach(e => {
+      const tm = e[2] === 'h' ? m.h : m.a, other = e[2] === 'h' ? m.a : m.h;
+      if (e[1] === 'goal' || e[1] === 'pen') { add(e[3], s, m, tm, e[1] === 'pen' ? ['g', 'pen'] : ['g']); add(e[4], s, m, tm, ['a']); }
+      else if (e[1] === 'og') add(e[3], s, m, other, ['og']);
+      else if (['yc', 'rc', 'mp'].includes(e[1])) add(e[3], s, m, tm, [e[1]]);
+    })));
+    return PIDX;
+  }
+  const PSORT = [
+    ['ga', 'Гол + пас', P => P.g + P.a], ['g', 'Голы', P => P.g], ['a', 'Ассисты', P => P.a], ['cards', 'Карточки', P => P.yc + P.rc * 2]
+  ];
+  const rankCache = new Map();
+  function allTimeRank(key, pid) {
+    if (!rankCache.has(key)) {
+      const f = PSORT.find(x => x[0] === key)[2];
+      const list = [...playerIndex().values()].map(P => [P.pid, f(P)]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
+      const r = new Map();
+      list.forEach(([id, v], i) => r.set(id, i > 0 && v === list[i - 1][1] ? r.get(list[i - 1][0]) : i + 1));
+      rankCache.set(key, r);
+    }
+    return rankCache.get(key).get(pid) || null;
+  }
+  const leaderCache = new Map();
+  function seasonLeaders(s) {
+    if (!leaderCache.has(s.id)) {
+      const by = new Map();
+      stats(s).players.forEach(p => { const x = by.get(p.pid) || { g: 0, a: 0 }; x.g += p.g; x.a += p.a; by.set(p.pid, x); });
+      const vals = [...by.values()];
+      const maxG = Math.max(0, ...vals.map(x => x.g)), maxA = Math.max(0, ...vals.map(x => x.a));
+      leaderCache.set(s.id, { by, maxG, maxA, nG: vals.filter(x => x.g === maxG).length, nA: vals.filter(x => x.a === maxA).length });
+    }
+    return leaderCache.get(s.id);
+  }
+  const normName = v => v.toLowerCase().replace(/[әғқңөұүһіёй]/g, c => ({ ә: 'а', ғ: 'г', қ: 'к', ң: 'н', ө: 'о', ұ: 'у', ү: 'у', һ: 'х', і: 'и', ё: 'е', й: 'и' }[c]));
+  const contrib = x => [x.g ? `⚽ ${x.g}` : '', x.a ? `пас ${x.a}` : '', x.og ? `автогол ${x.og}` : '', x.yc ? `ЖК ${x.yc}` : '', x.rc ? `КК ${x.rc}` : ''].filter(Boolean).join(' · ');
+
+  function playersTable(qs, sortKey, all) {
+    const sort = PSORT.find(x => x[0] === sortKey) || PSORT[0];
+    const needle = normName(qs.trim());
+    let list = [...playerIndex().values()].filter(P => (needle ? normName(P.name).includes(needle) : sort[2](P) > 0));
+    list.sort((a, b) => sort[2](b) - sort[2](a) || b.g - a.g || b.a - a.a || a.name.localeCompare(b.name));
+    const total = list.length;
+    list = list.slice(0, all || needle ? 400 : 50);
+    if (!list.length) return '<div class="empty">Игрок не найден</div>';
+    let rank = 0, prev = null;
+    const rows = list.map((P, i) => {
+      const v = sort[2](P);
+      if (v !== prev) { rank = i + 1; prev = v; }
+      const teams = [...P.teams.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]);
+      return `<tr><td class="muted">${needle ? '' : rank}</td>
+        <td class="l strong">${playerA(P.pid)}</td>
+        <td class="l"><span class="team-cell">${teams.slice(0, 3).map(t => badge(t, null, 'sm')).join('')}${teams.length > 3 ? `<span class="muted" style="font-size:11px">+${teams.length - 3}</span>` : ''}</span></td>
+        <td class="hide-sm">${P.seasons.size}</td><td>${P.g}</td><td>${P.a}</td><td class="hide-sm">${P.g + P.a}</td><td class="hide-sm">${P.yc}</td><td class="hide-sm">${P.rc}</td>
+        <td class="pts">${sort[0] === 'cards' ? `${P.yc}/${P.rc}` : v}</td></tr>`;
+    }).join('');
+    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th class="l">Игрок</th><th class="l">Команды</th><th class="hide-sm" title="Турниров">Т</th><th title="Голы">Г</th><th title="Передачи">П</th><th class="hide-sm">Г+П</th><th class="hide-sm" title="Жёлтые карточки">ЖК</th><th class="hide-sm" title="Красные карточки">КК</th><th>${esc(sort[1])}</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${!all && !needle && total > list.length ? `<div class="note"><a class="btn" href="${link('players', { sort: sort[0], all: 1 })}">Показать всех (${total})</a></div>` : ''}`;
+  }
+  function viewPlayers(q) {
+    const sort = PSORT.find(x => x[0] === q.sort) || PSORT[0];
+    return `
+      <div class="page-title"><h1>Игроки</h1><span class="crumbs">${playerIndex().size} игроков · все сезоны с 2017 года</span></div>
+      <div class="card">
+        <div class="card-b"><input id="player-search" class="search" type="search" placeholder="Поиск игрока: имя или фамилия" value="${esc(q.q || '')}" autocomplete="off"></div>
+        <div class="subtabs">${PSORT.map(x => `<a href="${link('players', { sort: x[0] })}" class="${x === sort ? 'active' : ''}">${x[1]}</a>`).join('')}</div>
+        <div id="players-list">${playersTable(q.q || '', sort[0], q.all === '1')}</div>
+        <div class="note">Статистика посчитана по протоколам матчей, опубликованным в Telegram-канале. Разные написания имени одного игрока объединены.</div>
+      </div>`;
+  }
+
+  function viewPlayer(id, q) {
+    const pid = Number(id);
+    const P = Number.isInteger(pid) ? playerIndex().get(pid) : null;
+    if (!P) return notFound();
+    const seasons = [...P.seasons.values()].sort((a, b) => SEASONS.indexOf(a.s) - SEASONS.indexOf(b.s));
+    const lastSeason = seasons[seasons.length - 1];
+    const teamOrder = [];
+    seasons.forEach(ss => ss.teams.forEach(t => { if (!teamOrder.includes(t)) teamOrder.push(t); }));
+    const mainTeam = [...lastSeason.teams][0];
+
+    // титулы
+    const titles = [];
+    seasons.forEach(ss => {
+      const st = stats(ss.s);
+      if (st.champion && ss.teams.has(st.champion)) titles.push(`<a class="list-row" href="${link('table', null, ss.s)}"><span class="ticon">🏆</span><div class="grow"><div class="t">Чемпион${ss.s.champion ? '' : '*'} · ${esc(tName(st.champion, ss.s))}</div><div class="s">${esc(sLabel(ss.s))}</div></div></a>`);
+      if (ss.s.incomplete) return;
+      const L = seasonLeaders(ss.s), me = L.by.get(pid);
+      if (me && me.g > 0 && me.g === L.maxG) titles.push(`<a class="list-row" href="${link('stats', { tab: 'scorers' }, ss.s)}"><span class="ticon">🥇</span><div class="grow"><div class="t">Лучший бомбардир${L.nG > 1 ? ' (разделил)' : ''} · ${me.g} ${plural(me.g, 'гол', 'гола', 'голов')}</div><div class="s">${esc(sLabel(ss.s))}</div></div></a>`);
+      if (me && me.a > 0 && me.a === L.maxA) titles.push(`<a class="list-row" href="${link('stats', { tab: 'assists' }, ss.s)}"><span class="ticon">🎯</span><div class="grow"><div class="t">Лучший ассистент${L.nA > 1 ? ' (разделил)' : ''} · ${me.a} ${plural(me.a, 'передача', 'передачи', 'передач')}</div><div class="s">${esc(sLabel(ss.s))}</div></div></a>`);
+    });
+
+    // рекорды
+    const ms = [...P.matches.values()].sort((a, b) => byDate(b.m, a.m));
+    const best = ms.slice().sort((a, b) => b.g - a.g || b.a - a.a || byDate(b.m, a.m))[0];
+    const bestGA = ms.slice().sort((a, b) => (b.g + b.a) - (a.g + a.a) || byDate(b.m, a.m))[0];
+    const hat = ms.filter(x => x.g >= 3).length, poker = ms.filter(x => x.g >= 4).length;
+    const bestSeason = seasons.slice().sort((a, b) => b.g - a.g || b.a - a.a)[0];
+    const scoreLine = x => `${esc(tName(x.m.h, x.m.s))} ${x.m.sc ? x.m.sc[0] + ':' + x.m.sc[1] : '?'} ${esc(tName(x.m.a, x.m.s))} · ${esc(fmtFull(x.m.d))}`;
+    const rec = [];
+    if (best && best.g) rec.push(`<a class="list-row" href="${matchLink(best.m)}"><div class="grow"><div class="t">Больше всего голов за матч</div><div class="s">${scoreLine(best)}</div></div><span class="val">${best.g}</span></a>`);
+    if (bestGA && bestGA.g + bestGA.a && (bestGA !== best || bestGA.a)) rec.push(`<a class="list-row" href="${matchLink(bestGA.m)}"><div class="grow"><div class="t">Больше всего «гол + пас» за матч</div><div class="s">${scoreLine(bestGA)}</div></div><span class="val">${bestGA.g + bestGA.a}</span></a>`);
+    if (bestSeason && bestSeason.g) rec.push(`<a class="list-row" href="${link('stats', null, bestSeason.s)}"><div class="grow"><div class="t">Лучший сезон по голам</div><div class="s">${esc(sLabel(bestSeason.s))}</div></div><span class="val">${bestSeason.g}</span></a>`);
+    rec.push(`<div class="list-row"><div class="grow"><div class="t">Хет-трики (3+ гола)</div>${poker ? `<div class="s">из них 4+ гола — ${poker}</div>` : ''}</div><span class="val">${hat}</span></div>`);
+    [['g', 'бомбардиров'], ['a', 'ассистентов'], ['ga', 'по «гол + пас»']].forEach(([k, t]) => {
+      const r = allTimeRank(k, pid);
+      if (r) rec.push(`<a class="list-row" href="${link('players', { sort: k })}"><div class="grow"><div class="t">Место в истории лиги ${t}</div></div><span class="val">${r}</span></a>`);
+    });
+
+    // по сезонам
+    const seasonRows = seasons.slice().reverse().map(ss => {
+      const L = seasonLeaders(ss.s);
+      const sortedG = [...L.by.values()].map(x => x.g).sort((a, b) => b - a);
+      const place = ss.g ? sortedG.indexOf(ss.g) + 1 : null;
+      return `<tr><td class="l"><a href="${link('stats', null, ss.s)}">${esc(ss.s.season)}</a><div class="muted" style="font-size:11px">${esc(ss.s.name)}</div></td>
+        <td class="l"><span class="team-cell">${[...ss.teams].map(t => `<a class="team-cell" href="${teamLink(t, ss.s)}">${badge(t, ss.s, 'sm')}<span class="name hide-sm">${esc(tName(t, ss.s))}</span></a>`).join(' ')}</span></td>
+        <td class="strong">${ss.g}</td><td>${ss.a}</td><td class="hide-sm">${ss.g + ss.a}</td><td>${ss.yc}</td><td>${ss.rc}</td><td class="hide-sm muted">${place ? '#' + place : '—'}</td></tr>`;
+    }).join('');
+
+    const all = q && q.all === '1';
+    const shown = all ? ms : ms.slice(0, 15);
+    return `
+      <div class="card"><div class="mh" style="text-align:left">
+        <div style="display:flex;align-items:center;gap:14px">${badge(mainTeam, lastSeason.s, 'lg')}
+          <div style="min-width:0"><div style="font-size:22px;font-weight:800;overflow-wrap:anywhere">${esc(P.name)}</div>
+            <div class="muted">${seasons.length} ${plural(seasons.length, 'турнир', 'турнира', 'турниров')} · ${esc(seasons[0].s.season)} — ${esc(lastSeason.s.season)}</div>
+            <div class="titles" style="margin-top:6px">${teamOrder.map(t => `<a class="pill" href="${teamLink(t)}">${esc(team(t).name)}</a>`).join('')}</div>
+          </div></div>
+      </div>
+      <div class="kpis five">
+        <div class="kpi"><div class="v">${P.g}</div><div class="k">голы</div></div>
+        <div class="kpi"><div class="v">${P.a}</div><div class="k">ассисты</div></div>
+        <div class="kpi"><div class="v">${P.g + P.a}</div><div class="k">гол + пас</div></div>
+        <div class="kpi"><div class="v"><span class="card-yc"></span> ${P.yc}</div><div class="k">жёлтые</div></div>
+        <div class="kpi"><div class="v"><span class="card-rc"></span> ${P.rc}</div><div class="k">красные</div></div>
+      </div>
+      ${P.pen || P.og || P.mp ? `<div class="note">Из них с пенальти: ${P.pen}${P.mp ? ` · незабитых пенальти: ${P.mp}` : ''}${P.og ? ` · автоголов: ${P.og}` : ''}</div>` : ''}
+      </div>
+      <div class="card"><div class="card-h">Титулы<span class="sub">${titles.length}</span></div>
+        ${titles.join('') || '<div class="empty">Титулов пока нет</div>'}
+        ${titles.some(t => t.includes('Чемпион*')) ? '<div class="note">* чемпион в канале не назван — первое место в итоговой таблице.</div>' : ''}
+      </div>
+      <div class="card"><div class="card-h">Рекорды</div>${rec.join('')}</div>
+      <div class="card"><div class="card-h">По сезонам</div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="l">Турнир</th><th class="l">Команда</th><th title="Голы">Г</th><th title="Передачи">П</th><th class="hide-sm">Г+П</th><th title="Жёлтые">ЖК</th><th title="Красные">КК</th><th class="hide-sm" title="Место среди бомбардиров">Место</th></tr></thead>
+        <tbody>${seasonRows}<tr><td class="l strong">Всего</td><td></td><td class="strong">${P.g}</td><td class="strong">${P.a}</td><td class="hide-sm strong">${P.g + P.a}</td><td class="strong">${P.yc}</td><td class="strong">${P.rc}</td><td class="hide-sm"></td></tr></tbody></table></div></div>
+      <div class="card"><div class="card-h">Матчи с участием<span class="sub">${ms.length}</span></div>
+        ${shown.map(x => matchRow(x.m, { showSeason: true, note: contrib(x) })).join('')}
+        ${!all && ms.length > shown.length ? `<div class="note"><a class="btn" href="${link('player/' + pid, { all: 1 })}">Показать все (${ms.length})</a></div>` : ''}
+      </div>`;
   }
 
   function notFound() {
@@ -641,7 +815,7 @@
     const top = (key, title, val, tab) => {
       const list = st.players.filter(p => val(p) > 0).sort((a, b) => val(b) - val(a) || b.g - a.g).slice(0, 5);
       return list.length ? `<div class="card"><div class="card-h">${title}<a class="more" href="${link('stats', { tab })}">Все</a></div>
-        ${list.map(p => `<div class="list-row">${badge(p.team, s, 'sm')}<div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(tName(p.team, s))}</div></div><span class="val">${val(p)}</span></div>`).join('')}</div>` : '';
+        ${list.map(p => `<a class="list-row" href="${playerLink(p.pid)}">${badge(p.team, s, 'sm')}<div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(tName(p.team, s))}</div></div><span class="val">${val(p)}</span></a>`).join('')}</div>` : '';
     };
     const links = D.league.links || {};
     sideR.innerHTML = (st.table.length ? `<div class="card"><div class="card-h">Таблица<a class="more" href="${link('table')}">Полная</a></div>${standingsTable(s, { mini: true, limit: 8 })}</div>` : seasonInfoCard(s)) +
@@ -660,7 +834,7 @@
     select.innerHTML = [...groups.entries()].map(([g, list]) => `<optgroup label="${esc(g)}">${list.map(s => `<option value="${esc(s.id)}">${esc(sLabel(s))}</option>`).join('')}</optgroup>`).join('');
   }
 
-  const TAB_OF = { '': 'matches', results: 'results', table: 'table', stats: 'stats', calendar: 'calendar', teams: 'teams', team: 'teams', archive: 'archive', records: 'records' };
+  const TAB_OF = { '': 'matches', results: 'results', table: 'table', stats: 'stats', players: 'players', player: 'players', calendar: 'calendar', teams: 'teams', team: 'teams', archive: 'archive', records: 'records' };
 
   function render() {
     const { parts, q } = parseRoute();
@@ -680,6 +854,8 @@
       case 'match': html = viewMatch(parts[1]); break;
       case 'archive': html = viewArchive(); break;
       case 'records': html = viewRecords(); break;
+      case 'players': html = viewPlayers(q); break;
+      case 'player': html = viewPlayer(parts[1], q); break;
       default: html = notFound();
     }
     app.innerHTML = html;
@@ -704,11 +880,22 @@
       center();
       requestAnimationFrame(center);
     }
+    const ps = document.getElementById('player-search');
+    if (ps) {
+      let timer = null;
+      ps.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          document.getElementById('players-list').innerHTML = playersTable(ps.value, q.sort, false);
+          history.replaceState(null, '', link('players', { q: ps.value, sort: q.sort }));
+        }, 150);
+      });
+    }
     const tf = document.getElementById('team-filter');
     if (tf) tf.addEventListener('change', () => { location.hash = link('results', { t: tf.value }); });
     const ts = document.getElementById('team-season');
     if (ts) ts.addEventListener('change', () => { location.hash = link('team/' + parts[1], null, SBY.get(ts.value)); });
-    document.title = `${{ matches: 'Матчи', results: 'Результаты', table: 'Таблица', stats: 'Статистика', calendar: 'Календарь', teams: 'Команды', archive: 'Архив', records: 'Рекорды' }[TAB_OF[p0]] || 'Матч'} — Unity League`;
+    document.title = `${{ matches: 'Матчи', results: 'Результаты', table: 'Таблица', stats: 'Статистика', players: 'Игроки', calendar: 'Календарь', teams: 'Команды', archive: 'Архив', records: 'Рекорды' }[TAB_OF[p0]] || 'Матч'} — Unity League`;
   }
 
   select.addEventListener('change', () => {

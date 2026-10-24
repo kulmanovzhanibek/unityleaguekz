@@ -265,3 +265,13 @@ table.tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabula
   .mh-score { font-size: 30px; }
   .badge.lg { width: 46px; height: 46px; font-size: 13px; }
 }
+
+/* ---------- players ---------- */
+.search { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 15px; outline: none; }
+.search:focus { border-color: var(--accent); }
+a.plink { color: inherit; }
+a.plink:hover { color: var(--accent); text-decoration: underline; }
+.ticon { flex: none; width: 24px; text-align: center; font-size: 18px; }
+.kpi .card-yc, .kpi .card-rc { vertical-align: 0; }
+.kpis.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 560px) { .kpis.five .kpi { padding: 10px 8px; } .kpis.five .kpi .v { font-size: 17px; } .kpis.five .kpi .k { font-size: 9px; letter-spacing: 0; } }

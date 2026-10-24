@@ -706,9 +706,138 @@ def cname(t, team, raw):
     v = tidy(raw)
     if not v or not LETTERS.search(v):
         return None
-    if re.search(r'опазд', v, re.I):
+    if re.search(r'опазд|penal|пенальт|double|автогол|^аг$', v, re.I):
         return None
     return canon.get((t, team, v), v)
+
+
+# ---------------------------------------------------------------- один игрок во всех сезонах
+# Узел — (турнир, команда, имя). Полные имена объединяются по совпадению слов (порядок, казахские буквы)
+# и по опечатке в одном слове; сокращения вида «Данияр О» присоединяются к полному имени, только если
+# в той же команде (в любом сезоне) подходит ровно один игрок. Иначе сокращение — отдельный игрок команды.
+def people(m, e):
+    sd = e.get('side')
+    if sd is None:
+        return []
+    st = {'h': m['h'], 'a': m['a']}
+    other = st['a' if sd == 'h' else 'h']
+    if e['type'] == 'og':
+        return [(other, e.get('p'))]
+    out = [(st[sd], e.get('p'))]
+    if e['type'] in ('goal', 'pen') and e.get('a'):
+        out.append((st[sd], e.get('a')))
+    return out
+
+
+node_cnt = collections.Counter()
+for m in matches:
+    for e in m['events']:
+        if e['type'] not in ('goal', 'pen', 'og', 'yc', 'rc', 'mp'):
+            continue
+        for team, raw in people(m, e):
+            n = cname(m['t'], team, raw) if raw else None
+            if n:
+                node_cnt[(m['t'], team, n)] += 1
+
+P_PARENT = {k: k for k in node_cnt}
+
+
+def pfind(k):
+    while P_PARENT[k] != k:
+        P_PARENT[k] = P_PARENT[P_PARENT[k]]
+        k = P_PARENT[k]
+    return k
+
+
+def punion(a, b):
+    ra, rb = pfind(a), pfind(b)
+    if ra != rb:
+        P_PARENT[rb] = ra
+
+
+full_nodes = [k for k in node_cnt if is_full(k[2])]
+by_key = collections.defaultdict(list)
+for k in full_nodes:
+    by_key[pkey(k[2])].append(k)
+for ks in by_key.values():
+    for k in ks[1:]:
+        punion(ks[0], k)
+key_teams = {key: {k[1] for k in ks} for key, ks in by_key.items()}
+tok_index = collections.defaultdict(set)
+for key in by_key:
+    for tk in key:
+        tok_index[tk].add(key)
+for key in by_key:
+    for tk in key:
+        for other in tok_index[tk]:
+            if other <= key or len(other) != len(key):
+                continue
+            ra = [x for x in key if x not in other]
+            rb = [x for x in other if x not in key]
+            if len(ra) != 1 or len(rb) != 1:
+                continue
+            need = 0.75 if key_teams[key] & key_teams[other] else 0.86
+            if similar(ra[0], rb[0]) >= need:
+                punion(by_key[key][0], by_key[other][0])
+
+def initials_match(q, full):
+    """«Данияр О» ~ «Олджамурат Данияр»: слова совпадают точно, однобуквенные — по первой букве."""
+    used = set()
+    for qt in q:
+        hit = next((i for i, ft in enumerate(full) if i not in used and (
+            qt == ft or (len(qt) <= 2 and ft.startswith(qt))
+            or (min(len(qt), len(ft)) >= 6 and abs(len(qt) - len(ft)) <= 3 and (qt.startswith(ft) or ft.startswith(qt))))), None)
+        if hit is None:
+            return False
+        used.add(hit)
+    return True
+
+
+team_full = collections.defaultdict(set)  # team -> {pkey of full names}
+for k in full_nodes:
+    team_full[k[1]].add(pkey(k[2]))
+for k in node_cnt:
+    if is_full(k[2]):
+        continue
+    q = pkey(k[2])
+    if not q:
+        continue
+    roots = {pfind(by_key[fk][0]) for fk in team_full[k[1]] if len(fk) >= len(q) and initials_match(q, fk)}
+    if len(roots) == 1:
+        punion(roots.pop(), k)
+abbr = collections.defaultdict(list)
+for k in node_cnt:
+    if pfind(k) == k and not is_full(k[2]):
+        abbr[(k[1], pkey(k[2]))].append(k)
+for ks in abbr.values():
+    for k in ks[1:]:
+        punion(ks[0], k)
+
+groups = collections.defaultdict(list)
+for k in node_cnt:
+    groups[pfind(k)].append(k)
+
+
+def display(ks):
+    c = collections.Counter()
+    for k in ks:
+        c[k[2]] += node_cnt[k]
+    full = [n for n, _ in c.most_common() if is_full(n)]
+    return full[0] if full else c.most_common(1)[0][0]
+
+
+PLAYERS = sorted(groups.values(), key=lambda ks: display(ks).lower())
+PLAYER_NAMES = [display(ks) for ks in PLAYERS]
+PID = {k: i for i, ks in enumerate(PLAYERS) for k in ks}
+
+
+def pid(t, team, raw):
+    n = cname(t, team, raw) if raw else None
+    return PID.get((t, team, n)) if n else None
+
+
+if '-v' in sys.argv:
+    print('players', len(PLAYERS), 'from', len(node_cnt), 'season entries')
 
 
 # ---------------------------------------------------------------- output
@@ -747,19 +876,19 @@ for t in T:
                 if sd is None:
                     continue
                 if typ == 'og':
-                    p = cname(t['id'], side_team['a' if sd == 'h' else 'h'], e.get('p'))
+                    p = pid(t['id'], side_team['a' if sd == 'h' else 'h'], e.get('p'))
                     a = None
                 else:
-                    p = cname(t['id'], side_team[sd], e.get('p'))
-                    a = cname(t['id'], side_team[sd], e.get('a')) if e.get('a') else None
+                    p = pid(t['id'], side_team[sd], e.get('p'))
+                    a = pid(t['id'], side_team[sd], e.get('a')) if e.get('a') else None
                 row = [e.get('min'), typ, sd, p]
-                if a:
+                if a is not None:
                     row.append(a)
                 ev.append(row)
             elif typ in ('yc', 'rc', 'mp'):
                 if sd is None:
                     continue
-                ev.append([e.get('min'), typ, sd, cname(t['id'], side_team[sd], e.get('p'))])
+                ev.append([e.get('min'), typ, sd, pid(t['id'], side_team[sd], e.get('p'))])
         rec = {'id': f"{t['id']}-{i + 1}", 'd': m['date'], 'h': m['h'], 'a': m['a'], 'sc': m['score']}
         if m.get('round'):
             rec['r'] = m['round']
@@ -804,6 +933,7 @@ data = {
         'source': 'Telegram-канал @unityleaguekz (экспорт сообщений 2017–2026)',
     },
     'teams': teams_out,
+    'players': PLAYER_NAMES,
     'seasons': out_t,
 }
 js = ('// Данные Unity League, собранные из экспорта Telegram-канала @unityleaguekz.\n'
