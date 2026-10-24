@@ -156,11 +156,14 @@ def marker_of(text):
 
 
 markers = []  # (datetime, n, div)
+# в постах с матчами отметкой тура считаются только строки до первого матча:
+# "(2 tour)" в самом заголовке — это перенесённый матч, а не начало тура
+PRE = {r['msg']: r['pre'] for r in RAW if r['n'] == 0}
 for mid, msg in MSGS.items():
     if not msg['text']:
         continue
-    first = ' '.join(msg['text'].split('\n')[:3])
-    mk = marker_of(first)
+    lines = PRE[mid] if mid in PRE else [l for l in msg['text'].split('\n') if l.strip(' —-')]
+    mk = marker_of(' '.join(lines[:3])) if lines else None
     if mk:
         markers.append((msg, mk))
 
@@ -507,6 +510,109 @@ for m in matches:
             if best:
                 rnd = best[1]
     m['round'] = rnd
+    m['round_inline'] = bool(mm)
+
+
+# Туры, не помеченные в канале, восстанавливаются: в туре каждая команда играет не больше одного раза,
+# тур укладывается в несколько соседних дней (посты иногда выходят на 1–2 дня позже), а явные отметки
+# «N тур» из постов служат опорными точками. Если восстановить туры непротиворечиво не удаётся
+# (неполные или нерегулярные турниры), матчи остаются без номера тура и сайт группирует их по дням.
+def infer_rounds(ms, cap, use_marks, active=None, lookback=2, window=14, per_day=False):
+    tours = {}
+    front = 0
+    out = {}
+    prev_day = None
+
+    def put(m, num, d):
+        t = tours.setdefault(num, {'teams': set(), 'n': 0, 'last': d})
+        t['teams'].update((m['h'], m['a']))
+        t['n'] += 1
+        t['last'] = max(t['last'], d)
+        out[id(m)] = num
+
+    for m in ms:
+        d = date.fromisoformat(m['date'])
+        if m['round_inline']:
+            put(m, m['round_mark'], d)
+            continue
+        mk = m['round_mark'] if use_marks else None
+        if mk is not None:
+            front = max(front, mk)
+            put(m, mk, d)
+            prev_day = d
+            continue
+        if per_day:  # формат «один игровой день — один тур»
+            if d != prev_day:
+                front += 1
+            prev_day = d
+            t, pt = tours.get(front), tours.get(front - 1)
+            busy = t and (m['h'] in t['teams'] or m['a'] in t['teams'])
+            if busy and pt and pt['n'] < cap and m['h'] not in pt['teams'] and m['a'] not in pt['teams']:
+                put(m, front - 1, d)  # доигрывали матч предыдущего тура
+            else:
+                put(m, front, d)
+            continue
+        # перенесённый матч: в каком-то из прошлых туров не сыграли ровно эти две команды
+        num = None
+        if active:
+            for k, t in sorted(tours.items()):
+                if k < front and t['n'] == cap - 1 and active - t['teams'] == {m['h'], m['a']}:
+                    num = k
+                    break
+        # дыра в одном из последних туров (опоздавший пост) или следующий тур
+        for k in ([] if num else range(max(1, front - lookback), front + 1)):
+            t = tours.get(k)
+            if t is None or (t['n'] < cap and m['h'] not in t['teams'] and m['a'] not in t['teams'] and (d - t['last']).days <= window):
+                num = k
+                break
+        if num is None:
+            front += 1
+            num = front
+        put(m, num, d)
+    return out
+
+
+def rounds_ok(ms, rounds, cap, allowed_max):
+    per = collections.defaultdict(list)
+    for m in ms:
+        per[rounds[id(m)]].append(m)
+    for r, lst in per.items():
+        teams = [t for m in lst for t in (m['h'], m['a'])]
+        if len(lst) > cap or len(teams) != len(set(teams)):
+            return False
+    return max(per) <= allowed_max
+
+
+for m in matches:
+    m['round_mark'] = m['round']
+for t in T:
+    ms = sorted([m for m in matches if m['t'] == t['id'] and not m.get('stage')], key=lambda m: (m['dt'], m['n']))
+    if not ms:
+        continue
+    cnt = collections.Counter()
+    for m in ms:
+        cnt[m['h']] += 1
+        cnt[m['a']] += 1
+    top = max(cnt.values())
+    n_active = sum(1 for v in cnt.values() if v >= top / 2)
+    cap = max(1, n_active // 2)
+    marks = [m['round_mark'] for m in ms if m['round_mark']]
+    allowed = max([n_active - 1 if n_active % 2 == 0 else n_active] + marks)
+    chosen = None
+    if t['kind'] == 'winter' and not t.get('incomplete'):
+        active = {t2 for t2, v in cnt.items() if v >= top / 2}
+        for per_day, use_marks in ((True, True), (False, True), (False, False)):
+            r = infer_rounds(ms, cap, use_marks, active=active, per_day=per_day)
+            if rounds_ok(ms, r, cap, allowed):
+                chosen = r
+                break
+    elif all(m['round_mark'] for m in ms):
+        chosen = {id(m): m['round_mark'] for m in ms}
+    for m in ms:
+        m['round'] = chosen[id(m)] if chosen else None
+    if '-v' in sys.argv:
+        rc = collections.Counter(m['round'] for m in ms)
+        print('tours', t['id'], 'cap', cap, ' '.join(f'{r}:{c}' for r, c in sorted(rc.items(), key=lambda kv: (kv[0] is None, kv[0] or 0))))
 
 # ---------------------------------------------------------------- player names
 def tidy(name):

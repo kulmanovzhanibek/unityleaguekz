@@ -199,6 +199,56 @@
     return `<div class="group-h"><span class="flag"></span>${esc(label)}<span class="right">${esc(fmtDay(d))}</span></div>` +
       ms.map(m => matchRow(m, Object.assign({ round: r, showStage: true }, opts))).join('');
   }
+  // ---- туры: если у всех матчей регулярного этапа есть номер тура, навигация идёт по турам
+  const tourMode = s => { const lg = s.matches.filter(m => !m.st); return lg.length > 0 && lg.every(m => m.r); };
+  function mainDates(ms) {
+    const c = new Map();
+    ms.forEach(m => c.set(m.d, (c.get(m.d) || 0) + 1));
+    let ds = [...c.keys()].sort();
+    if (ms.length > 2) {
+      const multi = ds.filter(d => c.get(d) >= 2);
+      if (multi.length) ds = multi;
+    }
+    if ((parseISO(ds[ds.length - 1]) - parseISO(ds[0])) / 864e5 > 3) ds = [[...c.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0]];
+    return ds;
+  }
+  function fmtSpan(ds) {
+    const a = ds[0], b = ds[ds.length - 1];
+    const short = x => fmt(x, { day: 'numeric', month: 'short' });
+    if (a === b) return short(a);
+    if (a.slice(0, 7) === b.slice(0, 7)) return `${parseISO(a).getDate()}–${short(b)}`;
+    return `${short(a)} – ${short(b)}`;
+  }
+  function tourGroups(s) {
+    const g = new Map();
+    s.matches.slice().sort(byDate).forEach(m => {
+      const key = m.st ? 'st:' + m.st : 'r' + m.r;
+      if (!g.has(key)) g.set(key, { key, stage: m.st || null, r: m.st ? null : m.r, ms: [] });
+      g.get(key).ms.push(m);
+    });
+    const list = [...g.values()];
+    list.forEach(x => { x.label = x.stage || `Тур ${x.r}`; x.main = mainDates(x.ms); x.last = x.ms[x.ms.length - 1].d; });
+    return list.sort((a, b) => (a.stage ? 1 : 0) - (b.stage ? 1 : 0) || (a.stage ? (a.main[0] < b.main[0] ? -1 : 1) : a.r - b.r));
+  }
+  const groupParams = g => (g.stage ? { st: g.stage } : { r: g.r });
+  function tourBody(g) {
+    return dayGroups(g.ms).map(([d, ms]) => `<div class="group-h"><span class="flag"></span>${esc(fmtDay(d))}</div>` + ms.map(m => matchRow(m)).join('')).join('');
+  }
+  function pickGroup(groups, q) {
+    let i = -1;
+    if (q.st) i = groups.findIndex(g => g.stage === q.st);
+    else if (q.r) i = groups.findIndex(g => !g.stage && String(g.r) === String(q.r));
+    else if (q.d) {
+      let best = 0;
+      groups.forEach((g, k) => { const n = g.ms.filter(m => m.d === q.d).length; if (n > best) { best = n; i = k; } });
+    }
+    if (i < 0) {
+      i = 0;
+      groups.forEach((g, k) => { if (g.last > groups[i].last || (g.last === groups[i].last && k > i)) i = k; });
+    }
+    return i;
+  }
+
   function formHtml(form) {
     return `<span class="form">${form.slice(-5).map(([r, m]) => `<a class="${r}" href="${matchLink(m)}" title="${esc(tName(m.h, m.s))} ${m.sc[0]}:${m.sc[1]} ${esc(tName(m.a, m.s))}">${{ W: 'В', D: 'Н', L: 'П' }[r]}</a>`).join('')}</span>`;
   }
@@ -228,6 +278,7 @@
   function viewMatches(q) {
     const s = cur;
     if (!s.matches.length) return emptySeason(s);
+    if (tourMode(s)) return viewTours(q);
     const dates = [...new Set(s.matches.map(m => m.d))].sort();
     const d = dates.includes(q.d) ? q.d : dates[dates.length - 1];
     const i = dates.indexOf(d);
@@ -247,6 +298,26 @@
       ${s.note ? `<div class="card"><div class="note">${esc(s.note)}</div></div>` : ''}`;
   }
 
+  function viewTours(q) {
+    const s = cur;
+    const groups = tourGroups(s);
+    const i = pickGroup(groups, q);
+    const g = groups[i];
+    const chips = groups.map((x, k) => `<a class="chip ${k === i ? 'active' : ''}" href="${link('', groupParams(x))}">${esc(x.label)}<small>${esc(fmtSpan(x.main))}</small></a>`).join('');
+    return `
+      <div class="page-title"><h1>Матчи</h1><span class="crumbs">${esc(sLabel(s))}</span></div>
+      <div class="strip">
+        <a class="chip-arrow" ${i > 0 ? `href="${link('', groupParams(groups[i - 1]))}"` : 'aria-disabled="true"'} title="Предыдущий тур">‹</a>
+        <div class="strip-scroll" id="strip">${chips}</div>
+        <a class="chip-arrow" ${i < groups.length - 1 ? `href="${link('', groupParams(groups[i + 1]))}"` : 'aria-disabled="true"'} title="Следующий тур">›</a>
+      </div>
+      <div class="card">
+        <div class="card-h">${esc(g.label)}<span class="sub">${esc(fmtSpan(g.main))} · ${g.ms.length} ${plural(g.ms.length, 'матч', 'матча', 'матчей')}</span></div>
+        ${tourBody(g)}
+      </div>
+      ${s.note ? `<div class="card"><div class="note">${esc(s.note)}</div></div>` : ''}`;
+  }
+
   function viewResults(q) {
     const s = cur;
     if (!s.matches.length) return emptySeason(s);
@@ -254,13 +325,19 @@
     const teams = st.table.map(r => r.team).sort((a, b) => tName(a, s).localeCompare(tName(b, s)));
     const tf = teams.includes(q.t) ? q.t : '';
     const ms = s.matches.filter(m => !tf || m.h === tf || m.a === tf).sort(byDate).reverse();
-    const groups = dayGroups(ms);
+    const has = m => !tf || m.h === tf || m.a === tf;
+    const body = tourMode(s)
+      ? tourGroups(s).reverse().map(g => {
+        const list = g.ms.filter(has).reverse();
+        return list.length ? `<div class="group-h"><span class="flag"></span>${esc(g.label)}<span class="right">${esc(fmtSpan(g.main))}</span></div>` + list.map(m => matchRow(m)).join('') : '';
+      }).join('')
+      : dayGroups(ms).map(([d, list]) => dayBlock(d, list)).join('');
     return `
       <div class="page-title"><h1>Результаты</h1>
         <div class="filters"><select id="team-filter" aria-label="Фильтр по команде"><option value="">Все команды</option>${teams.map(t => `<option value="${esc(t)}" ${t === tf ? 'selected' : ''}>${esc(tName(t, s))}</option>`).join('')}</select></div>
       </div>
       ${incompleteBanner(s)}
-      <div class="card">${groups.map(([d, list]) => dayBlock(d, list)).join('') || '<div class="empty">Матчей нет</div>'}</div>`;
+      <div class="card">${body || '<div class="empty">Матчей нет</div>'}</div>`;
   }
 
   function standingsTable(s, opts) {
@@ -617,7 +694,16 @@
     lastPath = key;
     const strip = document.getElementById('strip');
     const act = strip && strip.querySelector('.chip.active');
-    if (act) strip.scrollLeft = act.offsetLeft - strip.clientWidth / 2 + act.clientWidth / 2;
+    if (act) {
+      const center = () => {
+        const sr = strip.getBoundingClientRect(), ar = act.getBoundingClientRect();
+        strip.style.scrollBehavior = 'auto';
+        strip.scrollLeft += ar.left - sr.left - (sr.width - ar.width) / 2;
+        strip.style.scrollBehavior = '';
+      };
+      center();
+      requestAnimationFrame(center);
+    }
     const tf = document.getElementById('team-filter');
     if (tf) tf.addEventListener('change', () => { location.hash = link('results', { t: tf.value }); });
     const ts = document.getElementById('team-season');
