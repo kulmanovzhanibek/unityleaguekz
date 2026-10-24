@@ -851,6 +851,7 @@ SHORT_IS = [
     (('Ақжолтай С', 'astana', 2025), 'Сұлтанбай Ақжолтай'), (('Ақжолтай С', 'taraz', 2025), 'Сұлтанбай Ақжолтай'),
     (('Самат Д', 'ertis', 2025), 'Джолдасов Самат'), (('Самат Д', 'ordabasy', 2025), 'Джолдасов Самат'),
     (('Бақыт Б', 'aktel', 2025), 'Бектасов Бакыт'),
+    (('Тимур К', 'altyn-adam', 2024), 'Кадыров Тимур'),     # Griffins/Aqsay -> Altyn Adam (подтвердил организатор)
 ]
 
 
@@ -955,6 +956,21 @@ def conflict(ia, ib):
 
 
 SURNAME = re.compile(r'(ов|ев|ова|ева|ин|ина|улы|уулы|кызы)$')
+KZ_LETTERS = set('ӘҒҚҢӨҰҮҺІ')
+
+
+def has_initial(name):
+    """«Тимур К»: полное слово + инициал (одиночное слово без инициала — слишком слабый признак)."""
+    w = name.replace('.', ' ').split()
+    return len(w) == 2 and any(len(x) == 1 for x in w) and any(len(x) > 2 for x in w)
+
+
+def kz_initial_ok(name, full_nodes_of_player):
+    """Инициал казахской буквой («Дастан Ә») должен совпасть с казахской буквой в полном имени кандидата."""
+    ini = [x for x in name.replace('.', ' ').split() if len(x) == 1]
+    if not ini or ini[0] not in KZ_LETTERS:
+        return True
+    return any(w.startswith(ini[0]) for k in full_nodes_of_player for w in k[2].split())
 
 
 def current_groups():
@@ -1018,7 +1034,14 @@ for r in short_roots:
         sc, fr, same_team, gap = scored[0]
         margin = len(scored) == 1 or sc - scored[1][0] >= 2
         # общая команда в прошлом — или редкое сочетание имени: во всей истории подходит один игрок
-        ok = (same_team and sc >= 3 and margin) or (not same_team and raw_cands == 1 and 0 <= gap <= 2)
+        # единственный кандидат, игравший в последние два сезона, а остальные не играют давно (4+ лет)
+        recent = [x for x in scored if 0 <= x[3] <= 2]
+        only_recent = (len(recent) == 1 and all(x[3] >= 4 for x in scored if x is not recent[0])
+                       and has_initial(ks[0][2]) and kz_initial_ok(ks[0][2], full_roots[recent[0][1]]))
+        ok = ((same_team and sc >= 3 and margin) or (not same_team and raw_cands == 1 and 0 <= gap <= 2)
+              or (only_recent and raw_cands == len(scored)))
+        if ok and only_recent and not ((same_team and sc >= 3 and margin) or (not same_team and raw_cands == 1)):
+            sc, fr, same_team, gap = recent[0]
     if ok:
         fr = scored[0][1]
         punion(fr, r)

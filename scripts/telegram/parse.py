@@ -65,8 +65,10 @@ def parse_event(line):
     mm = re.search(r'(\d{1,3})\s*(?:\+\s*\d+)?\s*(?:\'|’|‘|′|`|,|;)?', s)
     minute = None
     pre = s[:mm.start()] if mm else ''
-    pre2 = re.sub(r'ЖК|КК|АГ\.?|Нер\.?\s*(?:д\.?\s*)?пен\.?|Пен\.?', '', pre)
-    if re.search(r'(^|[^а-я])Пен\.?', pre) and not re.search(r'Нер', pre):
+    if re.match(r'^\W*⚽\uFE0F?\s*А\s*$', pre):  # «⚽️А 33’ Каирболат А.» — автогол
+        ev['og'] = True
+    pre2 = re.sub(r'ЖК|КК|АГ\.?|Нер\.?\s*(?:д\.?\s*)?пен\.?|Пен\.?|(?<![А-Яа-я])(ДП|П|А)(?![А-Яа-я])', '', pre)
+    if re.search(r'(^|[^а-я])Пен\.?|(?<![А-Яа-я])П(?![А-Яа-я])', pre) and not re.search(r'Нер', pre):
         ev['pen_prefix'] = True
     if mm and len(pre) <= 14 and not re.search(r'[A-Za-zА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі]', pre2):
         minute = int(mm.group(1))
@@ -91,6 +93,8 @@ def parse_event(line):
     text = re.sub(r'\(\s*(автогол|д\.?\s*пен\.?|пен\.?|пенальти|Double Penatly|Нереализованный ДП)\s*\)', '', text, flags=re.I)
     text = re.sub(r'\(\s*пен\.?\s+', '(', text, flags=re.I)
     text = re.sub(r'^\W*Пен\.?\s*', '', text)
+    text = re.sub(r'^(ДП|П|А)\s+', '', text)   # пометки «ДП», «П» (пенальти) и «А» (автогол) перед именем
+    text = re.sub(r'\s+\d+\s*$', '', text)     # «Бақыт Б (Арсен Б) 10» — лишнее число в конце
     text = re.sub(r'(автогол|Автогол|Пенальти|пенальти)', '', text)
     text = re.sub(r'\+1D', '', text)
     text = text.strip(' :;.,-')
