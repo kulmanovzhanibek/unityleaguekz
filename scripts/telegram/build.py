@@ -44,15 +44,19 @@ ALIASES = {
     'kaztour': 'kaztour', 'maiqudyk': 'maiqudyq', 'maiqudyq': 'maiqudyq', 'mib': 'mib', 'munaishy': 'munaishy',
     'munaishy jr': 'munaishy-jr', 'narxoz': 'narxoz', 'okzhetpes': 'okzhetpes', 'oqzhetpes': 'okzhetpes',
     'old school': 'old-school', 'ordabasy': 'ordabasy', 'ordabasy jr': 'ordabasy-jr', 'otrar': 'otyrar',
-    'otyrar': 'otyrar', 'pride': 'pride', 'qurmet': 'qurmet', 'sdc': 'sdc', 'sdcl': 'sdcl', 'sdu': 'sdu',
+    'otyrar': 'otyrar', 'pride': 'aktobe', 'qurmet': 'qurmet', 'sdc': 'sdc', 'sdcl': 'sdcl', 'sdu': 'sdu',
     'semey': 'semey', 'semey spartak': 'semey', 'spartak': 'semey', 'spartak semey': 'semey', 'sever': 'sever',
     'sunkar': 'sunkar', 'syntez': 'syntez', 'taraz': 'taraz', 'turan': 'turan', 'verniy': 'vernyi',
     'vernyi': 'vernyi', 'vostok': 'vostok', 'young boyz': 'young-boyz', 'zavod': 'zavod',
+    # написания из подписей к карточкам
+    'jesgrads team': 'jezgrads', 'jez': 'jezgrads', 'bayterek': 'baiterek', 'актеl': 'aktel', 'aķzhayik': 'akzhayik',
+    'ansal ali': 'ansar-ali', 'восток': 'vostok', 'kentau': 'turan',
 }
 
 
 def team_key(name):
     n = name.lower().replace('ı', 'i').strip(' .!:')
+    n = re.sub(r'^(дп|д\.?\s*пен\.?|пен\.?)\s+', '', n)
     n = re.sub(r'\s+', ' ', n)
     return ALIASES.get(n)
 
@@ -110,9 +114,9 @@ T = [
          champion='aqsay', status='finished', names={'aqsay': 'Aqsay SG', 'aktel': 'AKTEL Premix Pro'},
          teams='semey zhetisu griffins ertis altyn-adam okzhetpes turan jezgrads vernyi bmg caspiy ansar-ali aqsay vostok aktel'.split()),
     dict(id='2024-25', season='2024/25', name='Premier Division', kind='winter', start='2024-11-29', end='2025-02-20',
-         champion='bmg', status='finished', names={'semey': 'Semey', 'aqsay': 'Aqsay SG'},
-         note='BMG и AKTEL набрали по 42 очка; чемпион — BMG (победа в личной встрече 3:2). Pride сыграли 7 матчей, Aktobe — 8. Матч Turan — Ertis в канале не опубликован.',
-         teams='aqsay astana vernyi ordabasy semey ertis aktel zhetisu jezgrads turan bmg caspiy vostok ansar-ali pride altyn-adam aktobe'.split()),
+         champion='bmg', status='finished', names={'semey': 'Semey', 'aqsay': 'Aqsay SG', 'aktobe': 'Aktobe (Pride)'},
+         note='BMG и AKTEL набрали по 42 очка; чемпион — BMG (победа в личной встрече 3:2). Pride в январе 2025 года переименовался в Aktobe (7 матчей под старым названием, 8 — под новым). Матч Turan — Ertis в канале не опубликован.',
+         teams='aqsay astana vernyi ordabasy semey ertis aktel zhetisu jezgrads turan bmg caspiy vostok ansar-ali altyn-adam aktobe'.split()),
     dict(id='2025-26', season='2025/26', name='Premier Division', kind='winter', start='2025-11-27', end='2026-02-05',
          status='finished', names={'semey': 'Semey', 'bmg': 'BMG Nova', 'akzhayik': 'Aqjaiyq'}, championFromTable=True,
          note='19 туров. Astana, Ertis и Aqtobe сыграли лишь 1–2 матча в начале сезона. Матч BMG Nova — Griffins в канале не опубликован.',
@@ -440,6 +444,11 @@ def card_side(m, e):
     if e.get('team'):
         tk = tkey(m['t'], e['team'])
         if tk in teams:
+            # подпись команды в посте иногда перепутана: если игрок много раз забивал/отдавал за соперника — верим составу
+            other = m['a'] if tk == m['h'] else m['h']
+            c = roster.get((m['t'], pkey(e.get('p') or '')), {})
+            if c.get(other, 0) >= 3 and c.get(other, 0) >= 3 * c.get(tk, 0):
+                tk = other
             return 'h' if tk == m['h'] else 'a'
     rt = roster_team(m['t'], e.get('p'), teams)
     if rt:
@@ -615,7 +624,17 @@ for t in T:
         print('tours', t['id'], 'cap', cap, ' '.join(f'{r}:{c}' for r, c in sorted(rc.items(), key=lambda kv: (kv[0] is None, kv[0] or 0))))
 
 # ---------------------------------------------------------------- player names
+LATIN = [('Yer', 'Ер'), ('Ye', 'Е'), ('ye', 'е'), ('kh', 'х'), ('Kh', 'Х'), ('zh', 'ж'), ('Zh', 'Ж'), ('sh', 'ш'), ('Sh', 'Ш'),
+         ('ch', 'ч'), ('Ch', 'Ч'), ('yu', 'ю'), ('ya', 'я'), ('ai', 'ай'), ('Ai', 'Ай'), ('ei', 'ей')] + \
+        list(zip('ABDEFGHIKLMNOPQRSTUVYZabdefghiklmnopqrstuvyz', 'АБДЕФГХИКЛМНОПКРСТУВЫЗабдефгхиклмнопкрстувыз'))
+
+
 def tidy(name):
+    if re.search(r'[A-Za-z]', name or '') and re.search(r'\d', name or ''):
+        # единичный пост 2024 года: «Yerasyl93», «Omar 10» — латиница с игровым номером
+        name = re.sub(r'\d+', ' ', name)
+        for a, c in LATIN:
+            name = name.replace(a, c)
     n = re.sub(r'\s+', ' ', (name or '')).strip(' .,;:-()')
     n = re.sub(r'\s*\(\s*$', '', n)
     n = re.sub(r'([A-Za-zА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі])\.(?=\S)', r'\1. ', n)
@@ -729,6 +748,15 @@ def people(m, e):
     return out
 
 
+# в одном поле два человека: «(Айтбеков Рустам, Мусаханов Данияр)» и «Бакытжан Ерханов Нұрсұлтан Жиембай» без скобок
+for m in matches:
+    for e in m['events']:
+        if e['type'] in ('goal', 'pen') and e.get('a') and ',' in e['a']:
+            e['a'] = e['a'].split(',')[0]
+        if e['type'] in ('goal', 'pen') and e.get('p') and not e.get('a') and len(e['p'].split()) == 4:
+            w = e['p'].split()
+            e['p'], e['a'] = ' '.join(w[:2]), ' '.join(w[2:])
+
 node_cnt = collections.Counter()
 for m in matches:
     for e in m['events']:
@@ -793,25 +821,209 @@ def initials_match(q, full):
     return True
 
 
-team_full = collections.defaultdict(set)  # team -> {pkey of full names}
+# --- ручные решения по итогам аудита имён (см. README, раздел «Особенности данных»)
+# Один и тот же человек под разными полными именами
+SAME_PERSON = [
+    ('Донай Досан', 'Досанұлы Донай'), ('Жанболат Жуманов', 'Жуман Жанболат'), ('Нурдаулет Куаныш', 'Куанышев Нурдаулет'),
+    ('Pedro Vizuete Castro', 'Педро Визуето Кастро'), ('Қарсыбаев Бердібек', 'Қарсыбай Бердібек'),
+    ('Сүндет Омирзак', 'Омирзак Сундетали'), ('Садык Асхар', 'Садык Аскар'), ('Агманов Дияс', 'Диас Агманов'),
+    ('Магдалины Алижан', 'Мадалиев Алижан'),
+]
+# Сокращённое имя (команда, с какого сезона) -> полное имя: случаи, где автоматика сомневается
+SHORT_IS = [
+    (('Батыр А', 'bmg', 2022), 'Аманбаев Батыр'),        # «Батыр А. (Айсұлтан Б)» — двое разных игроков BMG
+    (('Айсұлтан Б', 'bmg', 2022), 'Батыр Айсұлтан'),
+    (('Даулет А', 'semey', 2023), 'Агабеков Даулет'),     # Айтжанов играл за Semey только до 2021/22
+    (('Айболат А', 'vostok', 2023), 'Айтқалиев Айболат'),
+    (('Ерсұлтан І', 'aqsay', 2023), 'Изберген Ерсултан'),  # Vernyi -> Aqsay
+    (('Алижан М', 'aqsay', 2024), 'Мадалиев Алижан'),
+    (('Мади М', 'semey', 2024), 'Мендахметов Мади'),
+    (('Әділбек Қ', 'aktel', 2024), 'Камиев Адильбек'),
+    (('Ернар М', 'vernyi', 2023), 'Молдияров Ернар'), (('Ернар М', 'aksay-alumni', 2025), 'Молдияров Ернар'),
+    (('Бексұлтан К', 'ordabasy', 2024), None),             # не Кажгалиев: тот в эти сезоны в AKTEL
+    (('Айберген А', 'aktel', 2023), 'Ахметжанов Айберген'),
+    (('Нурдаулет К', 'griffins', 2023), None),
+    (('Ниязби С', 'aktobe', 2024), 'Сабыров Ниязби'),
+    (('Жомарт Ы', 'aktobe', 2024), 'Ыбырай Жомарт'), (('Жомарт', 'aktobe', 2024), 'Ыбырай Жомарт'),
+    (('Улан Х', 'vernyi', 2024), 'Улан Хусаинов'), (('Улан Х', 'ansar-ali', 2025), 'Улан Хусаинов'),
+    (('Айбар К', 'vernyi', 2023), 'Кангельдиев Айбар'), (('Айбар К', 'aksay-alumni', 2025), 'Кангельдиев Айбар'),
+    (('Диас Б', 'aksay-alumni', 2025), 'Беимбетов Диас'),
+    (('Ақжолтай С', 'astana', 2025), 'Сұлтанбай Ақжолтай'), (('Ақжолтай С', 'taraz', 2025), 'Сұлтанбай Ақжолтай'),
+    (('Самат Д', 'ertis', 2025), 'Джолдасов Самат'), (('Самат Д', 'ordabasy', 2025), 'Джолдасов Самат'),
+    (('Бақыт Б', 'aktel', 2025), 'Бектасов Бакыт'),
+]
+
+
+def year_of(t):
+    """Сезон турнира: 2017/18 -> 2017. Весенняя студенческая лига 2018 относится к сезону 2017/18."""
+    return {'2018-student': 2017}.get(t, int(t[:4]))
+
+
+tour_cnt = collections.Counter()
+for m in matches:
+    tour_cnt[(m['t'], m['h'])] += 1
+    tour_cnt[(m['t'], m['a'])] += 1
+tour_max = collections.Counter()
+for (t, tm), c in tour_cnt.items():
+    tour_max[t] = max(tour_max[t], c)
+# команды, снявшиеся по ходу турнира: их игроки могли в том же сезоне перейти в другой клуб
+PARTIAL = {(t, tm) for (t, tm), c in tour_cnt.items() if c < 0.4 * tour_max[t]}
+
+
+def nkey(name):
+    return tuple(sorted(x.replace('ия', 'иа') for x in pkey(name)))
+
+
+def initials_match(q, full):
+    """«Данияр О» ~ «Олджамурат Данияр»: слова совпадают точно, однобуквенные — по первой букве."""
+    used = set()
+    for qt in q:
+        hit = next((i for i, ft in enumerate(full) if i not in used and (
+            qt == ft or (len(qt) <= 2 and ft.startswith(qt))
+            or (min(len(qt), len(ft)) >= 6 and abs(len(qt) - len(ft)) <= 3 and (qt.startswith(ft) or ft.startswith(qt))))), None)
+        if hit is None:
+            return False
+        used.add(hit)
+    return True
+
+
+def roots_named(name, team=None, since=None):
+    return {pfind(k) for k in node_cnt if k[2] == name and (team is None or k[1] == team) and (since is None or year_of(k[0]) >= since)}
+
+
+for a, b in SAME_PERSON:
+    ra, rb = roots_named(a), roots_named(b)
+    if ra and rb:
+        for r in ra | rb:
+            punion(next(iter(rb)), r)
+    elif '-v' in sys.argv:
+        print('SAME_PERSON: not found', a if not ra else b)
+
+# сокращение -> единственный подходящий игрок той же команды (±3 сезона)
+team_full = collections.defaultdict(lambda: collections.defaultdict(set))  # team -> nkey -> years
 for k in full_nodes:
-    team_full[k[1]].add(pkey(k[2]))
+    team_full[k[1]][nkey(k[2])].add(year_of(k[0]))
+full_root_by_nkey = {}
+for k in full_nodes:
+    full_root_by_nkey.setdefault((k[1], nkey(k[2])), k)
+manual_short = {}
+for (name, team, since), target in SHORT_IS:
+    for k in node_cnt:
+        if k[2] == name and k[1] == team and year_of(k[0]) >= since:
+            manual_short[k] = target
 for k in node_cnt:
-    if is_full(k[2]):
+    if is_full(k[2]) or k in manual_short:
         continue
-    q = pkey(k[2])
+    q = nkey(k[2])
     if not q:
         continue
-    roots = {pfind(by_key[fk][0]) for fk in team_full[k[1]] if len(fk) >= len(q) and initials_match(q, fk)}
+    y = year_of(k[0])
+    roots = {pfind(full_root_by_nkey[(k[1], fk)]) for fk, years in team_full[k[1]].items()
+             if len(fk) >= len(q) and initials_match(q, fk) and min(abs(y - x) for x in years) <= 3}
     if len(roots) == 1:
         punion(roots.pop(), k)
+
+# одинаковые сокращения одной команды — один игрок, если между появлениями не больше двух сезонов
 abbr = collections.defaultdict(list)
 for k in node_cnt:
-    if pfind(k) == k and not is_full(k[2]):
-        abbr[(k[1], pkey(k[2]))].append(k)
+    if pfind(k) == k and not is_full(k[2]) and k not in manual_short:
+        abbr[(k[1], nkey(k[2]))].append(k)
 for ks in abbr.values():
-    for k in ks[1:]:
-        punion(ks[0], k)
+    ks.sort(key=lambda k: year_of(k[0]))
+    for prev, k in zip(ks, ks[1:]):
+        if year_of(k[0]) - year_of(prev[0]) <= 2:
+            punion(prev, k)
+
+
+def ginfo(root_nodes):
+    seasons = {(k[0], k[1]) for k in root_nodes}
+    years = [year_of(t) for t, _ in seasons]
+    return {'seasons': seasons, 'teams': {tm for _, tm in seasons}, 'tours': {t for t, _ in seasons},
+            'first': min(years), 'last': max(years)}
+
+
+def conflict(ia, ib):
+    for t in ia['tours'] & ib['tours']:
+        A = {tm for tt, tm in ia['seasons'] if tt == t}
+        B = {tm for tt, tm in ib['seasons'] if tt == t}
+        if A & B:
+            continue
+        if all((t, x) in PARTIAL for x in A) or all((t, x) in PARTIAL for x in B):
+            continue
+        return True
+    return False
+
+
+SURNAME = re.compile(r'(ов|ев|ова|ева|ин|ина|улы|уулы|кызы)$')
+
+
+def current_groups():
+    g = collections.defaultdict(list)
+    for k in node_cnt:
+        g[pfind(k)].append(k)
+    return g
+
+
+# ручные назначения сокращений
+for k, target in manual_short.items():
+    if target is None:
+        continue
+    rs = roots_named(target)
+    if rs:
+        punion(next(iter(rs)), k)
+    elif '-v' in sys.argv:
+        print('SHORT_IS: target not found', target)
+groups_now = current_groups()
+for (name, team, since), target in SHORT_IS:  # «не этот игрок»: все такие узлы — один отдельный игрок
+    if target is None:
+        ks = [k for k in manual_short if k[2] == name and k[1] == team]
+        for k in ks[1:]:
+            punion(ks[0], k)
+
+# сокращения без пары в своей команде ищут игрока в других командах
+groups_now = current_groups()
+full_roots = {r: ks for r, ks in groups_now.items() if any(is_full(k[2]) for k in ks)}
+full_info = {r: ginfo(ks) for r, ks in full_roots.items()}
+full_names = {r: {nkey(k[2]) for k in ks if is_full(k[2])} for r, ks in full_roots.items()}
+CROSS = []
+short_roots = sorted((r for r, ks in groups_now.items() if r not in full_roots and not any(k in manual_short for k in ks)),
+                     key=lambda r: -sum(node_cnt[k] for k in groups_now[r]))
+for r in short_roots:
+    ks = groups_now[r]
+    q = nkey(ks[0][2])
+    if not q:
+        continue
+    si = ginfo(ks)
+    scored = []
+    raw_cands = 0
+    for fr, keys in full_names.items():
+        hit = [fk for fk in keys if len(fk) >= len(q) and initials_match(q, fk)]
+        if not hit:
+            continue
+        raw_cands += 1
+        fi = full_info[fr]
+        if conflict(si, fi):
+            continue
+        sc = 3 if si['teams'] & fi['teams'] else 0
+        gap = si['first'] - fi['last']
+        sc += 2 if 0 <= gap <= 1 else 1 if gap == 2 else (-2 if gap >= 4 else 0)
+        full_tok = [x for x in q if len(x) > 2]
+        other = [x for x in hit[0] if x not in full_tok]
+        if other and SURNAME.search(other[0]):
+            sc += 1
+        scored.append((sc, fr, bool(si['teams'] & fi['teams']), gap))
+    scored.sort(key=lambda x: -x[0])
+    ok = False
+    if scored:
+        sc, fr, same_team, gap = scored[0]
+        margin = len(scored) == 1 or sc - scored[1][0] >= 2
+        # общая команда в прошлом — или редкое сочетание имени: во всей истории подходит один игрок
+        ok = (same_team and sc >= 3 and margin) or (not same_team and raw_cands == 1 and 0 <= gap <= 2)
+    if ok:
+        fr = scored[0][1]
+        punion(fr, r)
+        full_info[fr] = ginfo([k for k in node_cnt if pfind(k) == pfind(fr)])
+        CROSS.append((ks[0][2], sorted(si['teams']), display(full_roots[fr]) if False else None, fr))
 
 groups = collections.defaultdict(list)
 for k in node_cnt:
@@ -828,6 +1040,14 @@ def display(ks):
 
 PLAYERS = sorted(groups.values(), key=lambda ks: display(ks).lower())
 PLAYER_NAMES = [display(ks) for ks in PLAYERS]
+PLAYER_ALIASES = {}
+for i, ks in enumerate(PLAYERS):
+    c = collections.Counter()
+    for k in ks:
+        c[k[2]] += node_cnt[k]
+    other = [n for n, _ in c.most_common() if n != PLAYER_NAMES[i]]
+    if other:
+        PLAYER_ALIASES[str(i)] = other
 PID = {k: i for i, ks in enumerate(PLAYERS) for k in ks}
 
 
@@ -838,6 +1058,8 @@ def pid(t, team, raw):
 
 if '-v' in sys.argv:
     print('players', len(PLAYERS), 'from', len(node_cnt), 'season entries')
+    for name, teams, _, fr in CROSS:
+        print('  cross-team:', name, teams, '->', PLAYER_NAMES[PID[fr]])
 
 
 # ---------------------------------------------------------------- output
@@ -934,6 +1156,7 @@ data = {
     },
     'teams': teams_out,
     'players': PLAYER_NAMES,
+    'playerAliases': PLAYER_ALIASES,
     'seasons': out_t,
 }
 js = ('// Данные Unity League, собранные из экспорта Telegram-канала @unityleaguekz.\n'

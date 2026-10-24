@@ -17,6 +17,7 @@
   SEASONS.forEach(s => s.matches.forEach(m => { m.s = s; MATCH.set(m.id, m); }));
   const TG = (D.league.links && D.league.links.telegram) || 'https://t.me/unityleaguekz';
   const PN = D.players || [];
+  const PALIAS = D.playerAliases || {};
   const pName = i => (i == null ? null : PN[i] || null);
   const has = v => v !== null && v !== undefined;
 
@@ -692,7 +693,8 @@
   function playersTable(qs, sortKey, all) {
     const sort = PSORT.find(x => x[0] === sortKey) || PSORT[0];
     const needle = normName(qs.trim());
-    let list = [...playerIndex().values()].filter(P => (needle ? normName(P.name).includes(needle) : sort[2](P) > 0));
+    const hit = P => normName(P.name).includes(needle) || (PALIAS[P.pid] || []).some(a => normName(a).includes(needle));
+    let list = [...playerIndex().values()].filter(P => (needle ? hit(P) : sort[2](P) > 0));
     list.sort((a, b) => sort[2](b) - sort[2](a) || b.g - a.g || b.a - a.a || a.name.localeCompare(b.name));
     const total = list.length;
     list = list.slice(0, all || needle ? 400 : 50);
@@ -779,6 +781,7 @@
           <div style="min-width:0"><div style="font-size:22px;font-weight:800;overflow-wrap:anywhere">${esc(P.name)}</div>
             <div class="muted">${seasons.length} ${plural(seasons.length, 'турнир', 'турнира', 'турниров')} · ${esc(seasons[0].s.season)} — ${esc(lastSeason.s.season)}</div>
             <div class="titles" style="margin-top:6px">${teamOrder.map(t => `<a class="pill" href="${teamLink(t)}">${esc(team(t).name)}</a>`).join('')}</div>
+            ${(PALIAS[pid] || []).length ? `<div class="muted" style="font-size:12px;margin-top:6px">В канале также: ${esc(PALIAS[pid].join(', '))}</div>` : ''}
           </div></div>
       </div>
       <div class="kpis five">

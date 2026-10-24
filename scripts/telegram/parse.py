@@ -57,7 +57,7 @@ def parse_event(line):
         score = (int(m.group(1)), int(m.group(2)))
         tail = m.group(3) or ''
         s = s[:m.start()].rstrip()
-        if re.search(r'автогол|АГ', tail, re.I):
+        if re.search(r'[аa]вто\s?гол|АГ', tail, re.I):
             ev['og'] = True
         elif tail:
             s = s + ' ' + tail
@@ -65,7 +65,9 @@ def parse_event(line):
     mm = re.search(r'(\d{1,3})\s*(?:\+\s*\d+)?\s*(?:\'|’|‘|′|`|,|;)?', s)
     minute = None
     pre = s[:mm.start()] if mm else ''
-    pre2 = re.sub(r'ЖК|КК|АГ\.?|Нер\.?\s*пен\.?', '', pre)
+    pre2 = re.sub(r'ЖК|КК|АГ\.?|Нер\.?\s*(?:д\.?\s*)?пен\.?|Пен\.?', '', pre)
+    if re.search(r'(^|[^а-я])Пен\.?', pre) and not re.search(r'Нер', pre):
+        ev['pen_prefix'] = True
     if mm and len(pre) <= 14 and not re.search(r'[A-Za-zА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі]', pre2):
         minute = int(mm.group(1))
         body = s[:mm.start()] + ' ' + s[mm.end():]
@@ -75,17 +77,20 @@ def parse_event(line):
     yel = body.count('⚠') + body.count('🟨') + (1 if re.search(r'(^|\s)ЖК(\s|:|$)', body) else 0) + (1 if re.search(r'yellow card', body, re.I) else 0)
     red = body.count('🟥') + body.count('🛑') + (1 if re.search(r'(^|\s)КК(\s|:|$)', body) else 0) + body.count('🔺') + (1 if re.search(r'red card', body, re.I) else 0)
     body = re.sub(r'(yellow|red) card', ' ', body, flags=re.I)
-    missed = bool(re.search(r'Нер\.?\s*пен|Нереализ|Penatly|Penalty\)|🚫|❌', body)) and not score
+    missed = bool(re.search(r'Нер\.?\s*(?:д\.?\s*)?пен|Нереализ|Penatly|Penalty\)|🚫|❌', body)) and not score
     if '❌' in body and yel >= 2:
         red += 1
         missed = False
-    is_og = ev.get('og') or bool(re.search(r'автогол|(^|\s|⚽)АГ\.?(\s|\d|$)', body, re.I))
-    is_pen = bool(re.search(r'\(\s*пен|пенальти|penalty', body, re.I)) and not missed
+    is_og = ev.get('og') or bool(re.search(r'[аa]вто\s?гол|(^|\s|⚽\uFE0F?)АГ\.?(\s|\d|\'|’|$)', body, re.I))
+    is_pen = (bool(re.search(r'\(\s*пен|\(\s*д\.?\s*пен|пенальти|penalty|(^|\s)Пен\.', body, re.I)) or ev.pop('pen_prefix', False)) and not missed
     text = clean(body)
     text = re.sub(r'^(ЖК|КК)\s*', '', text)
-    text = re.sub(r'(^|\s)АГ\.?(\s|$)', ' ', text)
-    text = re.sub(r'Нер\.?\s*пен\.?', '', text)
-    text = re.sub(r'\(\s*(автогол|Автогол|пен\.?|пенальти|Пенальти|Double Penatly|Нереализованный ДП)\s*\)', '', text)
+    text = re.sub(r'(^|\s)АГ\.?[\'’]?(\s|$)', ' ', text)
+    text = re.sub(r'\(?\s*[аa]вто\s?гол\s*\)?', ' ', text, flags=re.I)
+    text = re.sub(r'Нер\.?\s*(?:д\.?\s*)?пен\.?', '', text)
+    text = re.sub(r'\(\s*(автогол|д\.?\s*пен\.?|пен\.?|пенальти|Double Penatly|Нереализованный ДП)\s*\)', '', text, flags=re.I)
+    text = re.sub(r'\(\s*пен\.?\s+', '(', text, flags=re.I)
+    text = re.sub(r'^\W*Пен\.?\s*', '', text)
     text = re.sub(r'(автогол|Автогол|Пенальти|пенальти)', '', text)
     text = re.sub(r'\+1D', '', text)
     text = text.strip(' :;.,-')
